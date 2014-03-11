@@ -21,13 +21,12 @@ def uint32(b):
     return struct.unpack('I', b)[0]
 
 def r_formid(f):
-    b = f.read(3)
+    b = bytearray(f.read(3))
     head = b[0] >> 6
     out = b[2] + b[1]*2**8 + (b[0]&63)*2**16
     if head == 2:
         out += 0xff000000
     return out
-
 
 def gen_flags(num):
     out = []
@@ -110,7 +109,11 @@ def format_faction_formids(data):
     return ', '.join(out)
 
 def format_data(data, flags):
-    data = list(data)
+    # Python 2/3 compatability shit
+    if isinstance(data[0], int):
+        data = list(data)
+    else:
+        data = list(map(ord, data))
     flags = list(map(int, flags.split()[0][2:].zfill(26)[::-1]))
 
     out = []
