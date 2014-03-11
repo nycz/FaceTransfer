@@ -20,12 +20,7 @@ def read_changeform(f, fidarray):
     flags = gen_flags(r_uint32(f))
 
     cftype = r_uint8(f)
-    if cftype >> 6 == 2:
-        lengthsize = 32
-    elif cftype >> 6 == 1:
-        lengthsize = 16
-    else:
-        lengthsize = 8
+    lengthsize = (8, 16, 32)[cftype >> 6]
     ftype = cftype & 63
     version = r_uint8(f)
     ln1 = r_uint(lengthsize, f)
@@ -85,16 +80,12 @@ def read_savefile(fname):
                 return plugininfo, fidarray, data, flags
         return []
 
+def strhex(num, zfill=8):
+    return str(hex(num))[2:].zfill(zfill)
+
 def format_refid(data, fidarray):
     b = list(map(int, data))
-    head = b[0] >> 6
-    out = b[2] + b[1]*2**8 + (b[0]&63)*2**16
-    refid = str(hex(out))[2:].zfill(6)
-    if head == 0:
-        fid = fidarray[out-1]
-        return '{} ({})'.format(str(hex(fid))[2:].zfill(8), refid)
-    else:
-        return ('!!', '00', 'ff')[head] + refid
+    return strhex(parse_refid(data, fidarray))
 
 def format_refids(data, fidarray):
     assert len(data)%3 == 0
@@ -109,6 +100,7 @@ def format_faction_refids(data, fidarray):
     for n in range(0, len(data), 4):
         out.append(format_refid(data[n:n+3], fidarray) + ':' + str(data[n+3]))
     return ', '.join(out)
+
 
 def format_data(data, flags, fidarray):
     # Python 2/3 compatability shit
@@ -199,7 +191,7 @@ def format_plugin_info_list(data):
     return ', '.join('{}:{}'.format(hex(n)[2:],x) for n,x in enumerate(data))
 
 def format_fidarray(data):
-    return ', '.join(str(hex(x))[2:].zfill(8) for x in data)
+    return ', '.join(strhex(x) for x in data)
 
 def main():
     for fname in os.listdir('saves'):
@@ -209,7 +201,7 @@ def main():
         except zlib.error as e:
             ucdata = data
         else:
-            printonlyraw = True
+            printonlyraw = False
             formatted_data = format_data(ucdata, flags, fidarray)
             # try:
             #     formatted_data = format_data(ucdata, flags, fidarray)
@@ -220,8 +212,8 @@ def main():
             with open('savedumps/' + fname + '.txt', 'w') as f:
                 f.write(format_plugin_info_list(plugininfo))
                 f.write('\n\n')
-                f.write(format_fidarray(fidarray))
-                f.write('\n\n')
+                # f.write(format_fidarray(fidarray))
+                # f.write('\n\n')
                 f.write(flags)
                 if not printonlyraw:
                     f.write('\n\n\n')
