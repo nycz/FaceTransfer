@@ -27,7 +27,7 @@ def r_refid(f, fidarray):
 
 def parse_refid(b, fidarray):
     head = b[0] >> 6
-    refid = b[2] + b[1]*2**8 + (b[0]&63)*2**16
+    refid = ((b[0]&63)<<16) + (b[1]<<8) + b[2]
     fid = fidarray[refid-1] if head == 0 else None
     return (fid, refid, 0xff000000 + refid)[head]
 

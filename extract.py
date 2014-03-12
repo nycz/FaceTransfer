@@ -21,7 +21,7 @@ def find_player_changeform(f, cfcount):
     """
     for i in range(cfcount):
         rawfid = bytearray(f.read(3))
-        fid = rawfid[2] + rawfid[1]*2**8 + (rawfid[0]&63)*2**16
+        fid = ((rawfid[0]&63)<<16) + (rawfid[1]<<8) + rawfid[2]
         flags = r_uint32(f)
         cftype = r_uint8(f)
         lengthsize = (8, 16, 32)[cftype >> 6]
