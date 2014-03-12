@@ -19,7 +19,7 @@ class ExtractionTest(unittest.TestCase):
                 = extract.extract_data(join(root, fname))
             self.assertEqual(cdata['plugininfo'], plugininfo)
             self.assertEqual(cdata['fidarray'], fidarray)
-            self.assertEqual(cdata['required plugins'], required_plugins)
+            self.assertEqual(sorted(cdata['required plugins']), sorted(required_plugins))
             self.assertEqual(cdata['flags'], playerflags)
             self.assertEqual(cdata['hair color'], playerdata['hair color'])
             self.assertEqual(cdata['skin color'], playerdata['skin color'])
@@ -31,6 +31,9 @@ class ExtractionTest(unittest.TestCase):
             if 'female' in cdata:
                 self.assertIn('female', playerdata)
                 self.assertEqual(cdata['female'], playerdata['female'])
+            if 'race' in cdata:
+                self.assertIn('race', playerdata)
+                self.assertEqual(cdata['race'], playerdata['race'])
 
 if __name__ == '__main__':
     unittest.main()

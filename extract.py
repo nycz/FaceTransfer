@@ -53,10 +53,8 @@ def extract_player_data(data, flags, fidarray, pluginlist):
         l = int(data[0]) + 1
         del data[:l]
     if flags[4]:
-        print(len(data))
         # Spells
         l = int(int(data[0])*0.75) + 2
-        print(l)
         del data[:l]
         # Shouts
         l = int(int(data[0])*0.75) + 1
@@ -74,7 +72,12 @@ def extract_player_data(data, flags, fidarray, pluginlist):
         del data[:52]
     # Race
     if flags[25]:
-        del data[0]
+        race = formid(data[:3], fidarray, pluginlist)
+        required_plugins.add(race[0])
+        defrace = formid(data[3:6], fidarray, pluginlist)
+        required_plugins.add(defrace[0])
+        out['race'] = [race, defrace]
+        del data[:6]
     # Unknown, usually 1
     del data[0]
     # Facial data
