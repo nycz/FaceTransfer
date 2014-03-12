@@ -30,3 +30,10 @@ def parse_refid(b, fidarray):
     refid = b[2] + b[1]*2**8 + (b[0]&63)*2**16
     fid = fidarray[refid-1] if head == 0 else None
     return (fid, refid, 0xff000000 + refid)[head]
+
+def formid(b, fidarray, pluginlist):
+    fid = parse_refid(bytearray(b), fidarray)
+    if fid < 0x01000000:
+        return ["", fid]
+    else:
+        return [pluginlist[fid>>24], fid & 0xffffff]
