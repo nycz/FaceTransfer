@@ -42,67 +42,51 @@ def extract_player_data(data, flags, fidarray, pluginlist):
     flags = list(map(int, bin(flags)[2:].zfill(32)[::-1]))
     required_plugins = set()
     out = {}
-    def add(desc, width):
-        out[desc] = data[:width]
-        del data[:width]
-    # Basedata (incl level)
-    if flags[1]:
-        del data[:24]
-    # Factions
-    if flags[6]:
-        l = int(data[0]) + 1
-        del data[:l]
-    if flags[4]:
-        # Spells
-        l = int(int(data[0])*0.75) + 2
-        del data[:l]
-        # Shouts
-        l = int(int(data[0])*0.75) + 1
-        del data[:l]
-    # AIData
-    if flags[3]:
-        del data[:20]
-    # Name
-    if flags[5]:
-        l = data[0] + data[1]*2**8
-        del data[:2]
-        add('name', l)
-    # Skills and stats
-    if flags[9]:
-        del data[:52]
-    # Race
-    if flags[25]:
-        race = formid(data[:3], fidarray, pluginlist)
-        required_plugins.add(race[0])
-        defrace = formid(data[3:6], fidarray, pluginlist)
-        required_plugins.add(defrace[0])
-        out['race'] = [race, defrace]
-        del data[:6]
-    # Unknown, usually 1
-    del data[0]
-    # Facial data
-    if flags[11]:
-        out['hair color'] = formid(data[:3], fidarray, pluginlist)
-        required_plugins.add(out['hair color'][0])
-        del data[:3]
-        add('skin color', 3)
-        del data[0]
-        out['head texture'] = formid(data[:3], fidarray, pluginlist)
-        required_plugins.add(out['head texture'][0])
-        del data[:3]
-        l = int(int(data[0])*0.75)
-        del data[0]
-        headparts = []
-        for x in range(0,l,3):
-            headparts.append(formid(data[x:x+3], fidarray, pluginlist))
-            required_plugins.add(headparts[-1][0])
-        out['headparts'] = headparts
-        del data[:l]
-        add('unknown1', 5)
-        add('face morph values', 76)
-        add('faceparts', 20)
-    if flags[24]:
-        add('female', 1)
+
+    # flag, length or function to get length, name to save it to, option
+    dynlen_refids = lambda x: (int(int(x[0])*0.75), 1)
+    dynlen_factions = lambda x: (int(x[0]), 1)
+    dynlen_name = lambda x: (x[0]+(x[1]<<8), 2)
+    datalist = [
+        (1,    24,              None,                None), # Basedata
+        (6,    dynlen_factions, None,                None), # Factions
+        (4,    dynlen_refids,   None,                None), # Spells
+        (4,    1,               None,                None),
+        (4,    dynlen_refids,   None,                None), # Shouts
+        (3,    20,              None,                None), # AIData
+        (5,    dynlen_name,    'name',               None),
+        (9,    52,              None,                None), # Skills and stats
+        (25,   6,              'race',              'formid'),
+        (None, 1,               None,                None),
+        (11,   3,              'hair color',        'formid'),
+        (11,   3,              'skin color',         None),
+        (11,   1,               None,                None),
+        (11,   3,              'head texture',      'formid'),
+        (11,   dynlen_refids,  'headparts',         'formid'),
+        (11,   5,              'unknown1',           None),
+        (11,   76,             'face morph values',  None),
+        (11,   20,             'faceparts',          None),
+        (24,   1,              'female',             None)
+    ]
+
+    for flag, length, savename, option in datalist:
+        if flag is not None and not flags[flag]:
+            continue
+        offset = 0
+        if not isinstance(length, int):
+            length, offset = length(data)
+        if savename:
+            if option == 'formid':
+                d = data[offset:length+offset]
+                l = []
+                for n in range(0,len(d),3):
+                    l.append(formid(d[n:n+3], fidarray, pluginlist))
+                    required_plugins.add(l[-1][0])
+                out[savename] = l if len(l) > 1 else l[0]
+            else:
+                out[savename] = data[offset:length+offset]
+        del data[:length+offset]
+
     required_plugins.discard("")
     return out, list(required_plugins)
 
