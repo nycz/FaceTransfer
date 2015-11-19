@@ -59,7 +59,7 @@ def parse_refid(b: bytes, fidarray: Sequence[int]) -> int:
     else:
         raise AssertionError('refid head is {}'.format(head))
 
-def formid(b: bytes, fidarray: Sequence[int], pluginlist: Sequence[str]) -> Tuple[str, int]:
+def get_formid_data(b: bytes, fidarray: Sequence[int], pluginlist: Sequence[str]) -> Tuple[str, int]:
     """
     Get a refID, parse it and return the actual formID coupled with the plugin
     name if applicable.

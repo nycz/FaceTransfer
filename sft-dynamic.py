@@ -45,16 +45,22 @@ def parse_refids(refidcount: int, formidarray: List[int], pluginlist: List[str],
     return refidcount*3, formiddata
 
 def parse_factions(factioncount: int, formidarray: List[int], pluginlist: List[str],
-                    i: int, data: bytes) -> Tuple[int, bytes]:
-    #TODO
-    return factioncount*4, data[i:i+factioncount*4]
+                    i: int, data: bytes) -> Tuple[int, List[Tuple[str, int, int]]]:
+    factions = [] # type: List[Tuple[str, int, int]]
+    for _ in range(factioncount):
+        plugin, fid = get_formid_data(data[i:i+3], formidarray, pluginlist)
+        rank = uint8(data[i+3:i+4])
+        factions.append((plugin, fid, rank))
+        i += 4
+    return factioncount*4, factions
 
 def parse_filetime(i: int, data: bytes):
     # TODO: this crap
     return data[i:i+8]
 
-def parse_screenshot(w: int, h: int, i: int, data: bytes) -> Tuple[int, bytes]:
-    return w*h*3, data[i:i+w*h*3]
+def parse_screenshot(w: int, h: int, game: str, i: int, data: bytes) -> Tuple[int, bytes]:
+    ln = {'skyrim': 3, 'fallout4': 4}[game]
+    return w*h*ln, data[i:i+w*h*ln]
 
 def parse_plugininfo(i: int, data: bytes) -> List[str]:
     pluginnum = uint8(data[i:i+1])
@@ -72,6 +78,13 @@ def parse_formidarray(formidarraycount: int, i: int, data: bytes) -> Tuple[int, 
         formids.append(uint32(data[i:i+4]))
         i += 4
     return i, formids
+
+def dump_screenshot(w: int, h: int, game: str, imgdata: bytes) -> None:
+    from PIL import Image
+    mode = {'skyrim': 'RGB', 'fallout4': 'RGBA'}[game]
+    img = Image.frombytes(mode, (w,h), imgdata)
+    img.save('shotdump.png')
+
 
 def find_player_changeform(cfcount: int, formidarray: List[int],
                            i: int, data: bytes) -> Tuple[bytes, int, int]:
@@ -101,7 +114,7 @@ def find_player_changeform(cfcount: int, formidarray: List[int],
         formtype = cftype & 63
         # The Skyrim version (currently unused)
         version = uint8(data[i:i+1])
-        assert version in [57, 64, 73, 74]
+        #assert version in [57, 64, 73, 74]
         i += 1
         # The actual length
         ln1 = uint(lengthsize, data[i:i+4])
@@ -115,78 +128,84 @@ def find_player_changeform(cfcount: int, formidarray: List[int],
 
 
 def parse_file(fname: str) -> Dict[str, Any]:
-    with open('skyrim.sft', 'r') as f:
-        instructions = f.read().splitlines()
     with open(fname, 'rb') as f:
         data = f.read()
+    if data[:13] == b'TESV_SAVEGAME':
+        game = 'skyrim'
+    elif data[:12] == b'FO4_SAVEGAME':
+        game = 'fallout4'
+    else:
+        game = None
+    with open('{}.sft'.format(game), 'r') as f:
+        instructions = f.read().splitlines()
     vardict = OrderedDict() # type: Dict[str, Any]
     i = 0
-    for line in instructions:
-        if line.startswith('#') or not line.strip():
-            continue
-        cmd, *args = line.split()
-        if cmd == 'skip':
-            if args[0].startswith('$'):
-                i += vardict[args[0]]
+    try:
+        for line in instructions:
+            if line.startswith('#') or not line.strip():
+                continue
+            cmd, *args = line.split()
+            if cmd == 'skip':
+                if args[0].startswith('$'):
+                    i += vardict[args[0]]
+                else:
+                    i += int(args[0])
+            elif cmd == 'goto':
+                if args[0].startswith('$'):
+                    i = vardict[args[0]]
+                else:
+                    i = int(args[0])
+            elif cmd == 'uint32le':
+                vardict[args[0]] = struct.unpack('>I', data[i:i+4])[0]
+                i += 4
+            elif cmd.startswith('uint'):
+                offset, vardict[args[0]] = parse_uint(int(cmd[4:6]), i, data)
+                i += offset
+            elif cmd == 'float32':
+                vardict[args[0]] = parse_float32(i, data)
+                i += 4
+            elif cmd == 'wstring':
+                offset, vardict[args[0]] = parse_wstring(i, data)
+                i += offset
+            elif cmd == 'filetime':
+                vardict[args[0]] = parse_filetime(i, data)
+                i += 8
+            elif cmd == 'screenshot':
+                w, h = vardict[args[1]], vardict[args[2]]
+                offset, vardict[args[0]] = parse_screenshot(w, h, game, i, data)
+                dump_screenshot(w,h, game, vardict[args[0]])
+                i += offset
+            elif cmd == 'plugininfo':
+                vardict[args[0]] = parse_plugininfo(i, data)
+                i += vardict[args[1]]
+            elif cmd == 'player':
+                vardict[args[0]] = find_player_changeform(vardict[args[1]], vardict[args[2]], i, data)
+            elif cmd == 'formidarray':
+                offset, vardict[args[0]] = parse_formidarray(vardict[args[1]], i, data)
+                i += offset
             else:
-                i += int(args[0])
-        elif cmd == 'goto':
-            if args[0].startswith('$'):
-                i = vardict[args[0]]
-            else:
-                i = int(args[0])
-        elif cmd.startswith('uint'):
-            offset, vardict[args[0]] = parse_uint(int(cmd[4:]), i, data)
-            i += offset
-        elif cmd == 'float32':
-            vardict[args[0]] = parse_float32(i, data)
-            i += 4
-        elif cmd == 'wstring':
-            offset, vardict[args[0]] = parse_wstring(i, data)
-            i += offset
-        elif cmd == 'filetime':
-            vardict[args[0]] = parse_filetime(i, data)
-            i += 8
-        elif cmd == 'screenshot':
-            w, h = vardict[args[1]], vardict[args[2]]
-            offset, vardict[args[0]] = parse_screenshot(w, h, i, data)
-            i += offset
-        elif cmd == 'plugininfo':
-            vardict[args[0]] = parse_plugininfo(i, data)
-            i += vardict[args[1]]
-        elif cmd == 'player':
-            vardict[args[0]] = find_player_changeform(vardict[args[1]], vardict[args[2]], i, data)
-        elif cmd == 'formidarray':
-            offset, vardict[args[0]] = parse_formidarray(vardict[args[1]], i, data)
-            i += offset
-        else:
-            raise SyntaxError('Unknown command: {}'.format(cmd))
-    return vardict
+                raise SyntaxError('Unknown command: {}'.format(cmd))
+        return game, vardict
+    except Exception as e:
+        traceback.print_exc()
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(vardict)
 
-    #except Exception as e:
-    #    error = True
-    #    print('ERROR', e)
-    #vardict['$screenshotdata'] = 'LOLSCREENSHOT'
-    #vardict['$formidarray'] = 'FORMIDARRAY YO'
-    #vardict['$plugininfo'] = 'PLUGINS YO'
-    #pp = pprint.PrettyPrinter(indent=4)
-    #pp.pprint(vardict)
-    #if error:
-    #    print('\n !!!!! ERROR !!!!!')
 
 def generate_flags(num: int) -> List[int]:
     return [n for n, x in enumerate(bin(num)[2:][::-1]) if x == '1']
 
-def parse_player(vardict: Dict[str, Any]):
+def parse_player(game: str, vardict: Dict[str, Any]):
     if vardict['$player'][1] != 0:
         data = zlib.decompress(vardict['$player'][0])
         assert len(data) == vardict['$player'][1]
     else:
         data = vardict['$player'][0]
     flags = generate_flags(vardict['$player'][2])
+    print_bytes(data, flags)
     formidarray = vardict['$formidarray']
     pluginlist = vardict['$plugininfo']
-    with open('skyrim-face.sft', 'r') as f:
+    with open('{}-face.sft'.format(game), 'r') as f:
         instructions = f.read().splitlines()
     pldict = OrderedDict() # type: Dict[str, Any]
     i = 0
@@ -233,16 +252,29 @@ def parse_player(vardict: Dict[str, Any]):
                 count = pldict[args[1]]//4
                 offset, pldict[args[0]] = parse_factions(count, formidarray, pluginlist, i, data)
                 i += offset
+            elif cmd == 'bytechunks':
+                count = pldict[args[1]]
+                chunksize = int(args[2])
+                pldict[args[0]] = data[i:i+count*chunksize]
+                i += count*chunksize
             else:
                 raise SyntaxError('Unknown command: {}'.format(cmd))
         if data[i:]:
             print('REST', data[i:])
     except Exception as e:
         traceback.print_exc()
-    finally:
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(pldict)
 
+
+def print_bytes(b: bytes, flags: List[int]):
+    out = ''
+    for byte in b:
+        out += str(byte).zfill(3)
+        out += ' '
+    with open('dump.txt', 'w') as f:
+        f.write('[' + ' '.join(map(str, flags)) + ']\n\n\n')
+        f.write(out)
 
 
 def main():
@@ -250,8 +282,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('file')
     args = parser.parse_args()
-    vardict = parse_file(args.file)
-    parse_player(vardict)
+    game, vardict = parse_file(args.file)
+    parse_player(game, vardict)
 
 
 

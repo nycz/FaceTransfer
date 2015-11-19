@@ -1,0 +1,37 @@
+# First 12 bytes should be "FO4_SAVEGAME"
+skip 12
+# Headersize isn't really relevant
+uint32 $headersize
+# Header
+uint32 $version
+uint32 $savenumber
+wstring $playername
+uint32 $playerlevel
+wstring $playerlocation
+wstring $gamedate
+wstring $playerraceeditorid
+uint16 $playersex
+float32 $playercurexp
+float32 $playerlvlupexp
+filetime $filetime
+uint32 $shotwidth
+uint32 $shotheight
+# End header
+screenshot $screenshotdata $shotwidth $shotheight
+uint8 $formversion
+wstring $gameversion
+uint32 $plugininfosize
+plugininfo $plugininfo $plugininfosize
+# File Location Table
+uint32 $formidarraycountoffset
+skip 12
+uint32 $changeformsoffset
+skip 16
+uint32 $changeformcount
+goto $formidarraycountoffset
+uint32 $formidarraycount
+formidarray $formidarray $formidarraycount
+# Has to get formidarray first b/c it's used when parsing changeForms
+goto $changeformsoffset
+player $player $changeformcount $formidarray
+
