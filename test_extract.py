@@ -35,5 +35,13 @@ class ExtractionTest(unittest.TestCase):
                 self.assertIn('race', playerdata)
                 self.assertEqual(cdata['race'], playerdata['race'])
 
+    def test_extract_ui_data(self):
+        root = join('testdata', 'test_extract_ui_data')
+        for fname in os.listdir(root):
+            if splitext(fname)[1] != '.ess':
+                continue
+            with open(join(root, fname)+'.json') as f:
+                cdata = json.loads(f.read())
+
 if __name__ == '__main__':
     unittest.main()

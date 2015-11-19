@@ -93,6 +93,14 @@ def extract_player_data(data, flags, fidarray, pluginlist):
 
 
 def extract_data(fname):
+    # data = {'shotw':0, 'shoth':0,}
+    # datalist = [
+    #     (None, 13, None),
+    #     (uint32, -2*4, None),
+    #     (uint32, 0, 'shotw'),
+    #     (uint32, 0, 'shoth'),
+
+    # ]
     with open(fname, 'rb') as f:
         # TESV_SAVEGAME
         f.seek(13)
@@ -126,3 +134,41 @@ def extract_data(fname):
     playerdata, required_plugins\
         = extract_player_data(ucdata, playerflags, fidarray, plugininfo)
     return plugininfo, fidarray, playerdata, playerflags, required_plugins
+
+
+
+def extract_ui_data(fname):
+    with open(fname, 'rb') as f:
+        # TESV_SAVEGAME
+        f.seek(13)
+        # Go to end of the header, and read thumbsize
+        headersize = r_uint32(f)
+        f.seek(headersize-2*4, 1)
+        shotw, shoth = r_uint32(f), r_uint32(f)
+        # Screenshot
+        f.seek(3*shotw*shoth, 1)
+        # FormVersion
+        f.seek(1, 1)
+        # Plugininfo
+        plugininfosize = r_uint32(f)
+        plugininfo = read_plugin_info(f, plugininfosize)
+        # File Location Table
+        fidcountoffset = r_uint32(f)
+        f.seek(3*4, 1)
+        # ChangeForm
+        cfoffset = r_uint32(f)
+        cfend = r_uint32(f)
+        f.seek(3*4, 1)
+        cfcount = r_uint32(f)
+        # FormID Array
+        f.seek(fidcountoffset)
+        fidarray = read_formid_array(f)
+        # Player ChangeForm
+        f.seek(cfoffset)
+        player, playerflags = find_player_changeform(f, cfcount)
+
+    ucdata = zlib.decompress(player)
+    playerdata, required_plugins\
+        = extract_player_data(ucdata, playerflags, fidarray, plugininfo)
+
+    return name, gender, level, race, location, savenum, playtime, plugins, reqplugins, screenshot

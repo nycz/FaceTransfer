@@ -1,3 +1,4 @@
+import base64
 import os
 import zlib
 
@@ -52,10 +53,10 @@ def read_savefile(fname):
         f.seek(13)
         headersize = r_uint32(f)
         # Go to end of the header, and read thumbsize
-        f.seek(headersize-2*4, 1)
+        header = f.read(headersize-2*4)
         shotw, shoth = r_uint32(f), r_uint32(f)
         # Screenshot
-        f.seek(3*shotw*shoth, 1)
+        screenshot = f.read(3*shotw*shoth)
         # FormVersion
         f.seek(1, 1)
         # Plugininfo
@@ -74,31 +75,35 @@ def read_savefile(fname):
         fidarray = read_formid_array(f)
 
         f.seek(cfoffset)
+        out = {}
+        out['dump'] = (header, screenshot, plugininfo, fidarray)
         for i in range(cfcount):
             (refid, ftype), pos, data, flags = read_changeform(f, fidarray)
             if refid == 0x7 and ftype == 9:
-                return plugininfo, fidarray, data, flags
-        return []
+                out['player'] = (data, flags)
+            if refid == 0x14:
+                out['achr'] = (data, flags)
+        return out
 
 def strhex(num, zfill=8):
     return str(hex(num))[2:].zfill(zfill)
 
 def format_refid(data, fidarray):
     b = list(map(int, data))
-    return strhex(parse_refid(data, fidarray))
+    return parse_refid(data, fidarray)
 
 def format_refids(data, fidarray):
     assert len(data)%3 == 0
     out = []
     for n in range(0, len(data), 3):
-        out.append(format_refid(data[n:n+3], fidarray))
+        out.append(str(format_refid(data[n:n+3], fidarray)))
     return ', '.join(out)
 
 def format_faction_refids(data, fidarray):
     assert len(data)%4 == 0
     out = []
     for n in range(0, len(data), 4):
-        out.append(format_refid(data[n:n+3], fidarray) + ':' + str(data[n+3]))
+        out.append(str(format_refid(data[n:n+3], fidarray)) + ':' + str(data[n+3]))
     return ', '.join(out)
 
 
@@ -186,16 +191,42 @@ def format_facial_stuff(data, fidarray):
 
     return out, data
 
+def format_header(data):
+    data = bytearray(data)
+    version = uint32(data[:4])
+    savenum = uint32(data[4:8])
+    l = data[8]+(data[9]<<8)
+    name = data[10:10+l]
+    del data[:10+l]
+    level = uint32(data[:4])
+    del data[:4]
+    l = data[0]+(data[1]<<8)
+    location = data[2:2+l]
+    del data[:2+l]
+    l = data[0]+(data[1]<<8)
+    date = data[2:2+l]
+    del data[:2+l]
+    l = data[0]+(data[1]<<8)
+    race = data[2:2+l]
+    del data[:2+l]
+    gender = ('male', 'female')[data[0]]
+
+    return 'version: {}\nsavenum: {}\nname: {}\nlvl: {}\nloc: {}\ndate: {}\nrace: {}\ngender: {}'\
+            .format(version, savenum, name, level, location, date, race, gender)
 
 def format_plugin_info_list(data):
-    return ', '.join('{}:{}'.format(hex(n)[2:],x) for n,x in enumerate(data))
+    return '; '.join('{}:{}'.format(hex(n)[2:],x) for n,x in enumerate(data))
 
 def format_fidarray(data):
     return ', '.join(strhex(x) for x in data)
 
 def main():
     for fname in os.listdir('saves'):
-        plugininfo, fidarray, data, flags = read_savefile('saves/' + fname)
+        print(fname)
+        sfdata = read_savefile('saves/' + fname)
+        header, screenshot, plugininfo, fidarray = sfdata['dump']
+        data, flags = sfdata['player']
+        achrdata = zlib.decompress(sfdata['achr'][0])
         try:
             ucdata = zlib.decompress(data)
         except zlib.error as e:
@@ -210,14 +241,20 @@ def main():
             # else:
             #     printonlyraw = False
             with open('savedumps/' + fname + '.txt', 'w') as f:
+                f.write(str(achrdata))
+                f.write('\n\n')
+                f.write(format_header(header))
+                f.write('\n\n')
                 f.write(format_plugin_info_list(plugininfo))
                 f.write('\n\n')
-                # f.write(format_fidarray(fidarray))
-                # f.write('\n\n')
+                f.write(str(fidarray))
+                f.write('\n\n')
                 f.write(flags)
                 if not printonlyraw:
                     f.write('\n\n\n')
                     f.write(formatted_data)
+                f.write('\n\n')
+                f.write(str(base64.standard_b64encode(screenshot)))
                 # f.write('\n\n')
                 # f.write(str(list(ucdata)))
 
