@@ -1,0 +1,52 @@
+
+# Actor base data
+flag 1
+    bytes $actorbasedata 24
+
+# Factions
+flag 6
+    uint8 $factionsize
+    factions $factions $factionsize
+
+# Spells and shouts
+flag 4
+    vsval $spellcount
+    refids $spells $spellcount
+    bytes $unknown0 1
+    vsval $shoutcount
+    refids $shouts $shoutcount
+
+flag 3
+    bytes $aidata 20
+
+flag 5
+    wstring $name
+
+flag 9
+    bytes $skills 52
+
+# Will possibly never show up?
+flag 12
+    refid $defaultoutfits
+
+flag 25
+    refids $race 2
+
+flag 11
+    bytes $unknown1 1
+    refid $haircolor
+    bytes $skincolor 3
+    bytes $unknown2 1
+    refid $headtexture
+    vsval $headpartcount
+    refids $headparts $headpartcount
+    bytes $unknown3 5
+    bytes $facemorphvalues 76
+    uint32 $unknown4
+    uint32 $nose
+    uint32 $unknown5
+    uint32 $eyes
+    uint32 $mouth
+
+flag 24
+    uint8 $gender
