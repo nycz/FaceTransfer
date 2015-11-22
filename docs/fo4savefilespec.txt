@@ -1,0 +1,79 @@
+Fallout 4 Save File Format
+==========================
+
+flag 1
+------
+ACBS (20 bytes)
+	flags
+	health offset
+	stamina offset
+	level
+	calc min level
+	calc max level
+	unknown (4 zero-bytes)
+	flags
+
+flag 6
+------
+Factions
+	uint8 size
+	(refid + uint8) * size
+
+flag 5
+------
+Name
+	wstring (uint16 + char[])
+
+flag 24
+-------
+Gender
+	uint8 gender
+
+flag 11
+-------
+Headparts
+	byte 0x1
+	headparts, hair color etc
+	bytes 0x1
+TETI/TEND ???
+	uint32 size
+	bytes 8 * size
+Face sliders
+	uint32 size
+	bytes 40 * size
+Extras (scars etc)
+	uint32 size
+	bytes 10 * size
+
+flag 14
+-------
+Unknown
+	byte 0x5
+	bytes 15 (all 0)
+	bytes 8 (maybe 2x uint32 or float32?)
+Body sliders
+	float32 thin
+	float32 muscular
+	float32 large
+
+
+STRUCTS
+=======
+Face sliders
+------------
+4 bytes (id?)
+float32 - ?
+float32 - ?
+float32 - length/size
+float32 - turned left? (A)
+float32 - ?
+float32 - ?
+float32 - ?
+float32 - ?
+float32 - ?
+
+Extras
+------
+2 bytes (id?)
+4 bytes (RGBA?)
+float32 - opacity

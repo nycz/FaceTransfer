@@ -13,15 +13,17 @@ flag 5
 flag 24
     uint8 $gender
 
-# This is b0rken
-flag 14
-    bytes $unknown1 46
-
 flag 11
+    bytes $headparts 49
     uint32 $ln1
     bytechunks $face1 $ln1 8
     uint32 $ln2
-    bytechunks $face2 $ln2 40
+    bytechunks $facesliders $ln2 40
     uint32 $ln3
     bytechunks $face3 $ln3 10
 
+flag 14
+    bytes $bodyrelated 24
+    float32 $thin
+    float32 $muscular
+    float32 $large
