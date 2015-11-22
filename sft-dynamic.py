@@ -2,6 +2,7 @@
 
 from collections import OrderedDict
 from datetime import datetime, timedelta
+from functools import partial
 import os.path
 import pprint
 import struct
@@ -15,8 +16,8 @@ from common import parse_refid, get_formid_data, uint, uint8, uint16, uint32
 def parse_uint(bits: int, i: int, data: bytes) -> Tuple[int, int]:
     return bits//8, uint(bits, data[i:i+4])
 
-def parse_float32(i: int, data: bytes) -> float:
-    return struct.unpack('f', data[i:i+4])[0]
+def parse_float32(i: int, data: bytes) -> Tuple[int, float]:
+    return 4, struct.unpack('f', data[i:i+4])[0]
 
 def parse_wstring(i: int, data: bytes) -> Tuple[int, str]:
     length = uint16(data[i:i+2])
@@ -35,7 +36,21 @@ def parse_vsval(i: int, data: bytes) -> Tuple[int, int]:
     elif size == 2:
         raise Exception('WELL SHIT the vsval got a uint32. just great')
 
-def parse_refids(refidcount: int, formidarray: List[int], pluginlist: List[str],
+def parse_bytes(length: int, i: int, data: bytes) -> Tuple[int, str]:
+    out = ''
+    for byte in data[i:i+length]:
+        out += str(byte).zfill(3)
+        out += ' '
+    return length, out #data[i:i+length]
+
+def parse_bytechunk(chunks: int, chunksize: int, i: int, data: bytes) -> Tuple[int, str]:
+    out = ''
+    for byte in data[i:i+chunks*chunksize]:
+        out += str(byte).zfill(3)
+        out += ' '
+    return chunks*chunksize, out #data[i:i+chunks*chunksize]
+
+def parse_refids(formidarray: List[int], pluginlist: List[str], refidcount: int,
                  i: int, data: bytes) -> Tuple[int, List[Tuple[str, int]]]:
     formiddata = [] # type: List[Tuple[str, int]]
     for _ in range(refidcount):
@@ -44,25 +59,26 @@ def parse_refids(refidcount: int, formidarray: List[int], pluginlist: List[str],
         i += 3
     return refidcount*3, formiddata
 
-def parse_factions(factioncount: int, formidarray: List[int], pluginlist: List[str],
+def parse_factions(formidarray: List[int], pluginlist: List[str], factionsize: int,
                     i: int, data: bytes) -> Tuple[int, List[Tuple[str, int, int]]]:
     factions = [] # type: List[Tuple[str, int, int]]
+    factioncount = factionsize // 4
     for _ in range(factioncount):
         plugin, fid = get_formid_data(data[i:i+3], formidarray, pluginlist)
         rank = uint8(data[i+3:i+4])
         factions.append((plugin, fid, rank))
         i += 4
-    return factioncount*4, factions
+    return factionsize, factions
 
 def parse_filetime(i: int, data: bytes):
     # TODO: this crap
-    return data[i:i+8]
+    return 8, data[i:i+8]
 
-def parse_screenshot(w: int, h: int, game: str, i: int, data: bytes) -> Tuple[int, bytes]:
+def parse_screenshot(game: str, w: int, h: int, i: int, data: bytes) -> Tuple[int, bytes]:
     ln = {'skyrim': 3, 'fallout4': 4}[game]
     return w*h*ln, data[i:i+w*h*ln]
 
-def parse_plugininfo(i: int, data: bytes) -> List[str]:
+def parse_plugininfo(plugininfosize: int, i: int, data: bytes) -> Tuple[int, List[str]]:
     pluginnum = uint8(data[i:i+1])
     n = i+1
     plugins = [] # type: List[str]
@@ -70,7 +86,7 @@ def parse_plugininfo(i: int, data: bytes) -> List[str]:
         offset, pluginname = parse_wstring(n, data)
         n += offset
         plugins.append(pluginname)
-    return plugins
+    return plugininfosize, plugins
 
 def parse_formidarray(formidarraycount: int, i: int, data: bytes) -> Tuple[int, List[int]]:
     formids = [] # type: List[int]
@@ -87,7 +103,7 @@ def dump_screenshot(w: int, h: int, game: str, imgdata: bytes) -> None:
 
 
 def find_player_changeform(cfcount: int, formidarray: List[int],
-                           i: int, data: bytes) -> Tuple[bytes, int, int]:
+                           i: int, data: bytes) -> Tuple[int, Tuple[bytes, int, int]]:
     """
     Go through all ChangeForms until the player is found and return it.
 
@@ -123,11 +139,11 @@ def find_player_changeform(cfcount: int, formidarray: List[int],
         ln2 = uint(lengthsize, data[i:i+4])
         i += lengthsize//8 + ln1
         if formid == 7 and formtype == 9:
-            return data[i-ln1:i], ln2, flags
+            return 0, (data[i-ln1:i], ln2, flags)
 
 
 
-def parse_file(fname: str) -> Dict[str, Any]:
+def parse_file(fname: str) -> Tuple[str, Dict[str, Any]]:
     with open(fname, 'rb') as f:
         data = f.read()
     if data[:13] == b'TESV_SAVEGAME':
@@ -136,53 +152,45 @@ def parse_file(fname: str) -> Dict[str, Any]:
         game = 'fallout4'
     else:
         game = None
-    with open('{}.sft'.format(game), 'r') as f:
+    with open('{}.ft'.format(game), 'r') as f:
         instructions = f.read().splitlines()
     vardict = OrderedDict() # type: Dict[str, Any]
+    cmds = {
+        'uint8': partial(parse_uint, 8),
+        'uint16': partial(parse_uint, 16),
+        'uint32': partial(parse_uint, 32),
+        'float32': parse_float32,
+        'wstring': parse_wstring,
+        'filetime': parse_filetime,
+        'screenshot': partial(parse_screenshot, game),
+        'plugininfo': parse_plugininfo,
+        'player': find_player_changeform,
+        'formidarray': parse_formidarray,
+    }
+    def parse_arg(arg):
+        if arg.startswith('$'):
+            return vardict[arg]
+        else:
+            return int(arg)
     i = 0
     try:
         for line in instructions:
             if line.startswith('#') or not line.strip():
                 continue
-            cmd, *args = line.split()
+            cmd, varname, *rawargs = line.split()
             if cmd == 'skip':
-                if args[0].startswith('$'):
-                    i += vardict[args[0]]
-                else:
-                    i += int(args[0])
+                i += parse_arg(varname)
+                continue
             elif cmd == 'goto':
-                if args[0].startswith('$'):
-                    i = vardict[args[0]]
-                else:
-                    i = int(args[0])
-            elif cmd == 'uint32le':
-                vardict[args[0]] = struct.unpack('>I', data[i:i+4])[0]
-                i += 4
-            elif cmd.startswith('uint'):
-                offset, vardict[args[0]] = parse_uint(int(cmd[4:6]), i, data)
+                i = parse_arg(varname)
+                continue
+            elif cmd in cmds:
+                func = cmds[cmd]
+                args = [parse_arg(x) for x in rawargs] + [i, data]
+                offset, value = func(*args) # this stuff has to be done b/c of mypy
                 i += offset
-            elif cmd == 'float32':
-                vardict[args[0]] = parse_float32(i, data)
-                i += 4
-            elif cmd == 'wstring':
-                offset, vardict[args[0]] = parse_wstring(i, data)
-                i += offset
-            elif cmd == 'filetime':
-                vardict[args[0]] = parse_filetime(i, data)
-                i += 8
-            elif cmd == 'screenshot':
-                w, h = vardict[args[1]], vardict[args[2]]
-                offset, vardict[args[0]] = parse_screenshot(w, h, game, i, data)
-                dump_screenshot(w,h, game, vardict[args[0]])
-                i += offset
-            elif cmd == 'plugininfo':
-                vardict[args[0]] = parse_plugininfo(i, data)
-                i += vardict[args[1]]
-            elif cmd == 'player':
-                vardict[args[0]] = find_player_changeform(vardict[args[1]], vardict[args[2]], i, data)
-            elif cmd == 'formidarray':
-                offset, vardict[args[0]] = parse_formidarray(vardict[args[1]], i, data)
-                i += offset
+                if value is not None:
+                    vardict[varname] = value
             else:
                 raise SyntaxError('Unknown command: {}'.format(cmd))
         return game, vardict
@@ -190,6 +198,7 @@ def parse_file(fname: str) -> Dict[str, Any]:
         traceback.print_exc()
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(vardict)
+        print(len(data))
 
 
 def generate_flags(num: int) -> List[int]:
@@ -205,66 +214,58 @@ def parse_player(game: str, vardict: Dict[str, Any]):
     print_bytes(data, flags)
     formidarray = vardict['$formidarray']
     pluginlist = vardict['$plugininfo']
-    with open('{}-face.sft'.format(game), 'r') as f:
+    with open('{}-face.ft'.format(game), 'r') as f:
         instructions = f.read().splitlines()
     pldict = OrderedDict() # type: Dict[str, Any]
+    cmds = {
+        'uint8': partial(parse_uint, 8),
+        'uint16': partial(parse_uint, 16),
+        'uint32': partial(parse_uint, 32),
+        'float32': parse_float32,
+        'wstring': parse_wstring,
+        'bytes': parse_bytes,
+        'bytechunks': parse_bytechunk,
+        'refid': partial(parse_refids, formidarray, pluginlist, 1),
+        'refids': partial(parse_refids, formidarray, pluginlist),
+        'vsval': parse_vsval,
+        'factions': partial(parse_factions, formidarray, pluginlist),
+    }
+    def parse_arg(arg):
+        if arg.startswith('$'):
+            return pldict[arg]
+        else:
+            return int(arg)
     i = 0
     skipthisflag = False
     try:
         for line in instructions:
             if line.startswith('#') or not line.strip():
                 continue
-            cmd, *args = line.strip().split()
+            cmd, varname, *rawargs = line.strip().split()
             if skipthisflag and cmd != 'flag':
                 continue
             if cmd == 'flag':
-                if int(args[0]) not in flags:
+                if varname.startswith('!') and int(varname[1:]) in flags:
+                    skipthisflag = True
+                elif varname.isdigit() and int(varname) not in flags:
                     skipthisflag = True
                 else:
                     skipthisflag = False
-            elif cmd.startswith('uint'):
-                offset, pldict[args[0]] = parse_uint(int(cmd[4:]), i, data)
+            elif cmd in cmds:
+                func = cmds[cmd]
+                args = [parse_arg(x) for x in rawargs] + [i, data]
+                offset, value = func(*args) # this stuff has to be done b/c of mypy
                 i += offset
-            elif cmd == 'bytes':
-                if args[1].isdigit():
-                    ln = int(args[1])
-                else:
-                    ln = pldict[args[1]]
-                pldict[args[0]] = data[i:i+ln]
-                i += ln
-            elif cmd == 'wstring':
-                offset, pldict[args[0]] = parse_wstring(i, data)
-                i += offset
-            elif cmd == 'vsval':
-                offset, pldict[args[0]] = parse_vsval(i, data)
-                i += offset
-            elif cmd == 'refids':
-                if args[1].isdigit():
-                    count = int(args[1])
-                else:
-                    count = pldict[args[1]]
-                offset, pldict[args[0]] = parse_refids(count, formidarray, pluginlist, i, data)
-                i += offset
-            elif cmd == 'refid':
-                offset, pldict[args[0]] = parse_refids(1, formidarray, pluginlist, i, data)
-                i += offset
-            elif cmd == 'factions':
-                count = pldict[args[1]]//4
-                offset, pldict[args[0]] = parse_factions(count, formidarray, pluginlist, i, data)
-                i += offset
-            elif cmd == 'bytechunks':
-                count = pldict[args[1]]
-                chunksize = int(args[2])
-                pldict[args[0]] = data[i:i+count*chunksize]
-                i += count*chunksize
+                if value is not None:
+                    pldict[varname] = value
             else:
                 raise SyntaxError('Unknown command: {}'.format(cmd))
         if data[i:]:
             print('REST', data[i:])
     except Exception as e:
         traceback.print_exc()
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(pldict)
+    pp = pprint.PrettyPrinter(indent=4)
+    pp.pprint(pldict)
 
 
 def print_bytes(b: bytes, flags: List[int]):
