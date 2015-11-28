@@ -1,174 +1,182 @@
-import zlib
+"""
+This module contains all low-level game independant functions used to
+manipulate and extract data in save game files.
+"""
 
-from common import *
+from collections import OrderedDict
+import struct
+import traceback
 
-def read_plugin_info(f, size):
-    endpos = f.tell() + size
-    length = r_uint8(f)
-    plugins = []
-    for _ in range(length):
-        l = r_uint16(f)
-        plugins.append(f.read(l).decode())
-    return plugins
+from typing import Any, Dict, Tuple
 
-def read_formid_array(f):
-    fidcount = r_uint32(f)
-    return [r_uint32(f) for x in range(fidcount)]
+# ========= Encode/decode functions ================================
 
-def find_player_changeform(f, cfcount):
-    """
-    Go through all ChangeForms until the player is found and return it.
-    """
-    for i in range(cfcount):
-        rawfid = bytearray(f.read(3))
-        fid = ((rawfid[0]&63)<<16) + (rawfid[1]<<8) + rawfid[2]
-        flags = r_uint32(f)
-        cftype = r_uint8(f)
-        lengthsize = (8, 16, 32)[cftype >> 6]
-        ftype = cftype & 63
-        version = r_uint8(f)
-        ln1 = r_uint(lengthsize, f)
-        r_uint(lengthsize, f)
-        data = f.read(ln1)
-        if fid == 0x7 and ftype == 9:
-            return data, flags
+def uint8(i: int, data: bytes) -> Tuple[int, int]:
+    return 1, struct.unpack('B', data[i:i+1])[0]
 
-def extract_player_data(data, flags, fidarray, pluginlist):
-    # Python 2/3 compatability shit
-    if isinstance(data[0], int):
-        data = list(data)
+def encode_uint8(data: int) -> bytes:
+    return struct.pack('B', data)
+
+def uint16(i: int, data: bytes) -> Tuple[int, int]:
+    return 2, struct.unpack('H', data[i:i+2])[0]
+
+def encode_uint16(data: int) -> bytes:
+    return struct.pack('H', data)
+
+def uint32(i: int, data: bytes) -> Tuple[int, int]:
+    return 4, struct.unpack('I', data[i:i+4])[0]
+
+def encode_uint32(data: int) -> bytes:
+    return struct.pack('I', data)
+
+def float32(i: int, data: bytes) -> Tuple[int, bytes]:
+    # Since floats lose a shitload of precision, lets just go with bytes for now
+    return 4, data[i:i+4] #struct.unpack('f', data[i:i+4])[0]
+
+def encode_float32(data: bytes) -> bytes:
+    return data #struct.pack('f', data)
+
+def wstring(i: int, data: bytes) -> Tuple[int, str]:
+    _, length = uint16(i, data)
+    return 2 + length, data[i+2:i+2+length].decode('cp1252')
+
+def encode_wstring(data: str) -> bytes:
+    btext = data.encode('cp1252')
+    length = encode_uint16(len(btext))
+    return length + btext
+
+def bytes_(i: int, data: bytes, length=0, end=0) -> Tuple[int, bytes]:
+    if length > 0:
+        endpoint = i+length
+    elif end > 0:
+        endpoint = end
     else:
-        data = list(map(ord, data))
-    flags = list(map(int, bin(flags)[2:].zfill(32)[::-1]))
-    required_plugins = set()
-    out = {}
+        raise Exception('Invalid arguments to bytes_ typefunc')
+    return endpoint-i, data[i:endpoint]
 
-    # flag, length or function to get length, name to save it to, option
-    dynlen_refids = lambda x: (int(int(x[0])*0.75), 1)
-    dynlen_factions = lambda x: (int(x[0]), 1)
-    dynlen_name = lambda x: (x[0]+(x[1]<<8), 2)
-    datalist = [
-        (1,    24,              None,                None), # Basedata
-        (6,    dynlen_factions, None,                None), # Factions
-        (4,    dynlen_refids,   None,                None), # Spells
-        (4,    1,               None,                None),
-        (4,    dynlen_refids,   None,                None), # Shouts
-        (3,    20,              None,                None), # AIData
-        (5,    dynlen_name,    'name',               None),
-        (9,    52,              None,                None), # Skills and stats
-        (25,   6,              'race',              'formid'),
-        (None, 1,               None,                None),
-        (11,   3,              'hair color',        'formid'),
-        (11,   3,              'skin color',         None),
-        (11,   1,               None,                None),
-        (11,   3,              'head texture',      'formid'),
-        (11,   dynlen_refids,  'headparts',         'formid'),
-        (11,   5,              'unknown1',           None),
-        (11,   76,             'face morph values',  None),
-        (11,   20,             'faceparts',          None),
-        (24,   1,              'female',             None)
-    ]
+def encode_bytes(data: bytes) -> bytes:
+    return data
 
-    for flag, length, savename, option in datalist:
-        if flag is not None and not flags[flag]:
+def formids(i: int, data: bytes, num=0) -> Tuple[int, bytes]:
+    return num*4, data[i:i+num*4]
+
+def encode_formids(data: bytes) -> bytes:
+    return data
+
+def screenshot(i: int, data: bytes, width=0, height=0, colorlength=0) -> Tuple[int, bytes]:
+    assert width*height > 0 and colorlength > 0
+    return width*height*colorlength, data[i:i+width*height*colorlength]
+
+def encode_screenshot(data: bytes) -> bytes:
+    return data
+
+# ========= End encode/decode functions ============================
+
+
+mainlayout = [
+    (bytes_, 'magic', {'length': 12, 'game': 'fallout4'}),
+    (bytes_, 'magic', {'length': 13, 'game': 'skyrim'}),
+    (uint32, 'headersize', {}),
+    # Header
+    (uint32, 'version', {}),
+    (uint32, 'savenumber', {}),
+    (wstring, 'playername', {}),
+    (uint32, 'playerlevel', {}),
+    (wstring, 'playerlocation', {}),
+    (wstring, 'gamedate', {}),
+    (wstring, 'playerraceeditorid', {}),
+    (uint16, 'playersex', {}),
+    (float32, 'playercurexp', {}),
+    (float32, 'playerlvlupexp', {}),
+    (bytes_, 'filetime', {'length': 8}),
+    # Screenshot
+    (uint32, 'shotwidth', {}),
+    (uint32, 'shotheight', {}),
+    (screenshot, 'screenshotdata', {'width': 'shotwidth', 'height': 'shotheight', 'colorlength': 4, 'game': 'fallout4'}),
+    (screenshot, 'screenshotdata', {'width': 'shotwidth', 'height': 'shotheight', 'colorlength': 3, 'game': 'skyrim'}),
+    # Misc stuff
+    (uint8, 'formversion', {}),
+    (wstring, 'gameversion', {'game': 'fallout4'}),
+    (uint32, 'plugininfosize', {}),
+    (bytes_, 'plugininfo', {'length': 'plugininfosize'}),
+    # File location table
+    (uint32, 'formidarraycountoffset', {}),
+    (uint32, 'unknowntable3offset', {}),
+    (uint32, 'globaldatatable1offset', {}),
+    (uint32, 'globaldatatable2offset', {}),
+    (uint32, 'changeformsoffset', {}),
+    (uint32, 'globaldatatable3offset', {}),
+    (bytes_, 'globaldatatablecounts', {'length': 12}),
+    (uint32, 'changeformcount', {}),
+    (bytes_, 'flttail', {'length': 15*4}),
+    # Data tables
+    (bytes_, 'globaldatatable1', {'end': 'globaldatatable2offset'}),
+    (bytes_, 'globaldatatable2', {'end': 'changeformsoffset'}),
+    (bytes_, 'changeforms', {'end': 'globaldatatable3offset'}),
+    (bytes_, 'globaldatatable3', {'end': 'formidarraycountoffset'}),
+    (uint32, 'formidarraycount', {}),
+    (formids, 'formidarray', {'num': 'formidarraycount'}),
+    (uint32, 'visitedworldspacearraycount', {}),
+    (formids, 'visitedworldspacearray', {'num': 'visitedworldspacearraycount'}),
+    (uint32, 'unknown3tablesize', {}),
+    (bytes_, 'unknown3table', {'length': 'unknown3tablesize'})
+]
+
+playerlayout = [
+    ()
+]
+
+
+
+
+def parse_savedata(rawdata: bytes) -> Tuple[str, Dict[str, Any]]:
+    """
+    Convert the entirety of a save file (as a bytes object) into an ordered
+    dict with all the data from the save file in a more accessible format.
+
+    The dict is also ready to be passed to encode_savedata to be converted
+    back to a save file.
+    """
+    if rawdata[:13] == b'TESV_SAVEGAME':
+        game = 'skyrim'
+    elif rawdata[:12] == b'FO4_SAVEGAME':
+        game = 'fallout4'
+    else:
+        raise Exception('Game not recognized! Magic is "{}"'.format(rawdata[:12].decode()))
+    data = OrderedDict() # type: Dict[str, Any]
+    i = 0
+    for typefunc, key, rawargs in mainlayout:
+        # Skip game-specific lines for the wrong game
+        if rawargs.get('game', game) != game:
             continue
-        offset = 0
-        if not isinstance(length, int):
-            length, offset = length(data)
-        if savename:
-            if option == 'formid':
-                d = data[offset:length+offset]
-                l = []
-                for n in range(0,len(d),3):
-                    l.append(formid(d[n:n+3], fidarray, pluginlist))
-                    required_plugins.add(l[-1][0])
-                out[savename] = l if len(l) > 1 else l[0]
-            else:
-                out[savename] = data[offset:length+offset]
-        del data[:length+offset]
+        # All string args should be variable names and replaced by
+        # their values, and the key 'game' should be removed
+        # DO NOT EDIT THE FUCKING ARGS DICT DIRECTLY
+        # OR EVERYTHING WILL BLOW UP b/c fuck mutability
+        args = {k: data[v] if isinstance(v, str) else v
+                for k,v in rawargs.items() if k != 'game'}
+        offset, data[key] = typefunc(i, rawdata, **args)
+        i += offset
+    return game, data
 
-    required_plugins.discard("")
-    return out, list(required_plugins)
-
-
-
-def extract_data(fname):
-    # data = {'shotw':0, 'shoth':0,}
-    # datalist = [
-    #     (None, 13, None),
-    #     (uint32, -2*4, None),
-    #     (uint32, 0, 'shotw'),
-    #     (uint32, 0, 'shoth'),
-
-    # ]
-    with open(fname, 'rb') as f:
-        # TESV_SAVEGAME
-        f.seek(13)
-        # Go to end of the header, and read thumbsize
-        headersize = r_uint32(f)
-        f.seek(headersize-2*4, 1)
-        shotw, shoth = r_uint32(f), r_uint32(f)
-        # Screenshot
-        f.seek(3*shotw*shoth, 1)
-        # FormVersion
-        f.seek(1, 1)
-        # Plugininfo
-        plugininfosize = r_uint32(f)
-        plugininfo = read_plugin_info(f, plugininfosize)
-        # File Location Table
-        fidcountoffset = r_uint32(f)
-        f.seek(3*4, 1)
-        # ChangeForm
-        cfoffset = r_uint32(f)
-        cfend = r_uint32(f)
-        f.seek(3*4, 1)
-        cfcount = r_uint32(f)
-        # FormID Array
-        f.seek(fidcountoffset)
-        fidarray = read_formid_array(f)
-        # Player ChangeForm
-        f.seek(cfoffset)
-        player, playerflags = find_player_changeform(f, cfcount)
-
-    ucdata = zlib.decompress(player)
-    playerdata, required_plugins\
-        = extract_player_data(ucdata, playerflags, fidarray, plugininfo)
-    return plugininfo, fidarray, playerdata, playerflags, required_plugins
-
-
-
-def extract_ui_data(fname):
-    with open(fname, 'rb') as f:
-        # TESV_SAVEGAME
-        f.seek(13)
-        # Go to end of the header, and read thumbsize
-        headersize = r_uint32(f)
-        f.seek(headersize-2*4, 1)
-        shotw, shoth = r_uint32(f), r_uint32(f)
-        # Screenshot
-        f.seek(3*shotw*shoth, 1)
-        # FormVersion
-        f.seek(1, 1)
-        # Plugininfo
-        plugininfosize = r_uint32(f)
-        plugininfo = read_plugin_info(f, plugininfosize)
-        # File Location Table
-        fidcountoffset = r_uint32(f)
-        f.seek(3*4, 1)
-        # ChangeForm
-        cfoffset = r_uint32(f)
-        cfend = r_uint32(f)
-        f.seek(3*4, 1)
-        cfcount = r_uint32(f)
-        # FormID Array
-        f.seek(fidcountoffset)
-        fidarray = read_formid_array(f)
-        # Player ChangeForm
-        f.seek(cfoffset)
-        player, playerflags = find_player_changeform(f, cfcount)
-
-    ucdata = zlib.decompress(player)
-    playerdata, required_plugins\
-        = extract_player_data(ucdata, playerflags, fidarray, plugininfo)
-
-    return name, gender, level, race, location, savenum, playtime, plugins, reqplugins, screenshot
+def encode_savedata(data: Dict[str, Any]) -> bytes:
+    """
+    Take a dictionary with the valid structure of a save file (aka the right
+    offsets etc) and merge it into bytes ready to be written to the disc as a
+    save file.
+    """
+    if data['magic'] == b'TESV_SAVEGAME':
+        game = 'skyrim'
+    elif data['magic'] == b'FO4_SAVEGAME':
+        game = 'fallout4'
+    else:
+        raise Exception('Game not recognized! Magic is "{}"'.format(data['magic'].decode()))
+    rawdata = bytes()
+    def encodefunc(f):
+        return globals()['encode_' + f.__name__.rstrip('_')]
+    funcs = {name:encodefunc(func) for func, name, args in mainlayout
+             if args.get('game', game) == game}
+    for key, value in data.items():
+        rawvalue = funcs[key](value)
+        rawdata += rawvalue
+    return rawdata

@@ -38,3 +38,5 @@ nosetests.xml
 # SFT specific
 saves
 savedumps
+skyrimsaves
+fallout4saves
