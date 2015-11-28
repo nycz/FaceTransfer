@@ -71,6 +71,13 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual(val2, decval2)
         self.assertEqual(l2, len(encval2))
 
+    def test_flags(self):
+        val = [1,2,6,23,25]
+        encval = extract.encode_flags(val)
+        decval = extract.flags(0, encval)
+        self.assertEqual(val, decval)
+        self.assertEqual(4, len(encval))
+
     def decode_and_encode(self, root):
         for path, _, fnames in os.walk(root):
             for fname in fnames:
@@ -85,6 +92,24 @@ class ExtractionTest(unittest.TestCase):
 
     def test_decode_and_encode_fallout4(self):
         self.decode_and_encode('fallout4saves')
+
+    def decode_and_encode_changeforms(self, root):
+        for path, _, fnames in os.walk(root):
+            for fname in fnames:
+                with open(os.path.join(path, fname), 'rb') as f:
+                    rawdata = f.read()
+                _, data = extract.parse_savedata(rawdata)
+                rawcf1 = data['changeforms']
+                cf = extract.parse_changeforms(rawcf1)
+                rawcf2 = extract.encode_changeforms(cf)
+                self.assertEqual(rawcf1, rawcf2)
+
+    def test_decode_and_encode_changeforms_skyrim(self):
+        self.decode_and_encode_changeforms('skyrimsaves')
+
+    def test_decode_and_encode_changeforms_fallout4(self):
+        self.decode_and_encode_changeforms('fallout4saves')
+
 
 if __name__ == '__main__':
     unittest.main()

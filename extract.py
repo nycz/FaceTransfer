@@ -6,10 +6,11 @@ manipulate and extract data in save game files.
 from collections import OrderedDict
 import struct
 import traceback
+import zlib
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
-# ========= Encode/decode functions ================================
+# ========= Encode/decode functions ==========================================
 
 def uint8(i: int, data: bytes) -> Tuple[int, int]:
     return 1, struct.unpack('B', data[i:i+1])[0]
@@ -70,8 +71,18 @@ def screenshot(i: int, data: bytes, width=0, height=0, colorlength=0) -> Tuple[i
 def encode_screenshot(data: bytes) -> bytes:
     return data
 
-# ========= End encode/decode functions ============================
+# ========= Misc functions ===================================================
 
+def flags(i: int, data: bytes) -> List[int]:
+    return [n for n, x in enumerate(bin(uint32(i, data)[1])[2:][::-1]) if x == '1']
+
+def encode_flags(flags: List[int]) -> bytes:
+    return encode_uint32(sum(pow(2, x) for x in flags))
+
+
+
+
+# ========= Main functions ===================================================
 
 mainlayout = [
     (bytes_, 'magic', {'length': 12, 'game': 'fallout4'}),
@@ -127,6 +138,86 @@ playerlayout = [
 ]
 
 
+def parse_changeforms(rawdata: bytes):
+    """
+    Convert the changeforms table to a useful dict with the different parts of
+    the player's changeform and the preceding and succeeding bytes.
+
+    The dict it returns is ready to be passed to encode_changeforms to convert
+    it back to bytes.
+    """
+    def uint(b, sizeflag):
+        return struct.unpack(['B', 'H', 'I'][sizeflag], b)[0]
+    i = 0
+    cfstart = 0
+    data = OrderedDict()
+    # Go through the changeforms until the player is found
+    while True:
+        cfstart = i
+        refid = rawdata[i:i+3]
+        changeflags = flags(i+3, rawdata)
+        _, cftype = uint8(i+7, rawdata)
+        _, version = uint8(i+8, rawdata)
+        i += 9
+        lnsize = [1,2,4][cftype >> 6]
+        reallength = uint(rawdata[i:i+lnsize], cftype >> 6)
+        uncompressedlength = uint(rawdata[i+lnsize:i+lnsize*2], cftype >> 6)
+        i += lnsize * 2 + reallength
+        # This is the players refid
+        if refid == bytes([64,0,7]):
+            data['changeformshead'] = rawdata[:cfstart]
+            data['playerrefid'] = refid
+            data['playerchangeflags'] = changeflags
+            data['playercftype'] = cftype & 63
+            data['playerversion'] = version
+            data['playerreallength'] = reallength
+            data['playeruncompressedlength'] = uncompressedlength
+            if uncompressedlength:
+                data['playerdata'] = zlib.decompress(rawdata[i-reallength:i])
+            else:
+                data['playerdata'] = rawdata[i-reallength:i]
+            data['changeformstail'] = rawdata[i:]
+            return data
+
+
+def encode_changeforms(data: Dict[str, Any]) -> bytes:
+    """
+    Convert the dict with data from the changeform struct back into a byte
+    object, ready to be inserted into the main save data dict.
+
+    This functions takes care of calculating the lengths of the different
+    parts in it so the playeruncompressedlength and playerreallength should
+    not be modified outside of this function.
+    """
+    # Only compress the data if the data was compressed before
+    if data['playeruncompressedlength']:
+        playerdata = zlib.compress(data['playerdata'])
+        uncompressedlength = len(data['playerdata'])
+    else:
+        playerdata = data['playerdata']
+        uncompressedlength = 0
+    reallength = len(playerdata)
+    cftype = data['playercftype']
+    # Fix the whole thing with variable uint sizes for the data lengths
+    if reallength > 0xffff or uncompressedlength > 0xffff:
+        cftype |= 192
+        reallength = encode_uint32(reallength)
+        uncompressedlength = encode_uint32(uncompressedlength)
+    elif reallength > 0xff or uncompressedlength > 0xff:
+        cftype |= 64
+        reallength = encode_uint16(reallength)
+        uncompressedlength = encode_uint16(uncompressedlength)
+    else:
+        reallength = encode_uint8(reallength)
+        uncompressedlength = encode_uint8(uncompressedlength)
+    # Build the actual bytechunk
+    rawdata = data['changeformshead'] + data['playerrefid']
+    rawdata += encode_flags(data['playerchangeflags'])
+    rawdata += encode_uint8(cftype)
+    rawdata += encode_uint8(data['playerversion'])
+    rawdata += reallength + uncompressedlength + playerdata
+    rawdata += data['changeformstail']
+    return rawdata
 
 
 def parse_savedata(rawdata: bytes) -> Tuple[str, Dict[str, Any]]:
