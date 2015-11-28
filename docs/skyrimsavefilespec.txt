@@ -33,6 +33,10 @@ bytes before lists are 33%
 too large. Eg. 56 instead
 of 42 and 28 instead of 21.
 Unsure why.
+
+>>>> ITS A FUCKING VSVAL UGH <<<<
+it's how many refids, times 4 b/c it's a 1 width vsval which means it's
+bitshifted to the left by 2 which means multiplied by 4. sooooooo
 ###########################
 
 

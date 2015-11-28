@@ -33,8 +33,12 @@ flag 11
 -------
 Headparts
 	byte 0x1
-	headparts, hair color etc
-	bytes 0x1
+	refid something
+	bytes 4 (rgba color)
+	refid something else
+	vsval count
+	refids count
+	byte 0x1
 TETI/TEND ???
 	uint32 size
 	bytes 8 * size
@@ -48,9 +52,8 @@ Extras (scars etc)
 flag 14
 -------
 Unknown
-	byte 0x5
-	bytes 15 (all 0)
-	bytes 8 (maybe 2x uint32 or float32?)
+	uint32 size (can be 0)
+	bytes 4 * size (uint32s or float32s?)
 Body sliders
 	float32 thin
 	float32 muscular
