@@ -37,6 +37,32 @@ def float32(i: int, data: bytes) -> Tuple[int, bytes]:
 def encode_float32(data: bytes) -> bytes:
     return data #struct.pack('f', data)
 
+def vsval(i: int, data: bytes) -> Tuple[int, int]:
+    # The two rightmost bits of the first byte decides the length of the var
+    size = data[i] & 0b11
+    if size == 0:
+        # uint8
+        return 1, data[i] >> 2
+    elif size == 1:
+        # uint16
+        return 2, (data[i] | (data[i+1] << 8)) >> 2
+    elif size == 2:
+        # uint32
+        return 3, (data[i] | (data[i+1] << 8) | (data[i+2] << 16)) >> 2
+
+def encode_vsval(data: int) -> bytes:
+    if data < 0x40:
+        # uint8
+        return bytes([data << 2])
+    elif data < 0x4000:
+        # uint16
+        data = (data << 2) + 1
+        return bytes([data & 255, data >> 8])
+    else:
+        # uint32
+        data = (data << 2) + 2
+        return bytes([data & 255, (data >> 8) & 255, (data >> 16) & 255])
+
 def wstring(i: int, data: bytes) -> Tuple[int, str]:
     _, length = uint16(i, data)
     return 2 + length, data[i+2:i+2+length].decode('cp1252')
@@ -46,10 +72,10 @@ def encode_wstring(data: str) -> bytes:
     length = encode_uint16(len(btext))
     return length + btext
 
-def bytes_(i: int, data: bytes, length=0, end=0) -> Tuple[int, bytes]:
-    if length > 0:
-        endpoint = i+length
-    elif end > 0:
+def bytes_(i: int, data: bytes, chunksize=1, length: int = None, end: int = None) -> Tuple[int, bytes]:
+    if length is not None:
+        endpoint = i+length*chunksize
+    elif end is not None:
         endpoint = end
     else:
         raise Exception('Invalid arguments to bytes_ typefunc')
@@ -62,6 +88,12 @@ def formids(i: int, data: bytes, num=0) -> Tuple[int, bytes]:
     return num*4, data[i:i+num*4]
 
 def encode_formids(data: bytes) -> bytes:
+    return data
+
+def refids(i: int, data: bytes, num=0) -> Tuple[int, bytes]:
+    return num*3, data[i:i+num*3]
+
+def encode_refids(data: bytes) -> bytes:
     return data
 
 def screenshot(i: int, data: bytes, width=0, height=0, colorlength=0) -> Tuple[int, bytes]:
@@ -78,9 +110,6 @@ def flags(i: int, data: bytes) -> List[int]:
 
 def encode_flags(flags: List[int]) -> bytes:
     return encode_uint32(sum(pow(2, x) for x in flags))
-
-
-
 
 # ========= Main functions ===================================================
 
@@ -133,9 +162,122 @@ mainlayout = [
     (bytes_, 'unknown3table', {'length': 'unknown3tablesize'})
 ]
 
-playerlayout = [
-    ()
+skyrimplayerlayout = [
+    # Flag 1
+    (bytes_, 'actorbasedata', {'length': 24, 'flag': 1}),
+    # Flag 6 (factions)
+    (uint8, 'factionsize', {'flag': 6}),
+    (bytes_, 'factions', {'length': 'factionsize', 'flag': 6}),
+    # Flag 4 (spells and shouts)
+    (vsval, 'spellcount', {'flag': 4}),
+    (refids, 'spells', {'num': 'spellcount', 'flag': 4}),
+    (bytes_, 'unknown0', {'length': 1, 'flag': 4}),
+    (vsval, 'shoutcount', {'flag': 4}),
+    (refids, 'shouts', {'num': 'shoutcount', 'flag': 4}),
+    # Flag 3
+    (bytes_, 'aidata', {'length': 20, 'flag': 3}),
+    # Flag 5 (name)
+    (wstring, 'name', {'flag': 5}),
+    # Flag 9
+    (bytes_, 'skills', {'length': 52, 'flag': 9}),
+    # Flag 12
+    (refids, 'defaultoutfits', {'num': 1, 'flag': 12}),
+    # Flag 25
+    (refids, 'race', {'num': 2, 'flag': 25}),
+    # Flag 11 (face)
+    (bytes_, 'unknown1', {'length': 1, 'flag': 11}),
+    (refids, 'haircolor', {'num': 1, 'flag': 11}),
+    (bytes_, 'skincolor', {'length': 3, 'flag': 11}),
+    (bytes_, 'unknown2', {'length': 1, 'flag': 11}),
+    (refids, 'headtexture', {'num': 1, 'flag': 11}),
+    (vsval, 'headpartcount', {'flag': 11}),
+    (refids, 'headparts', {'num': 'headpartcount', 'flag': 11}),
+    (bytes_, 'unknown3', {'length': 5, 'flag': 11}),
+    (bytes_, 'facemorphvalues', {'length': 76, 'flag': 11}),
+    (uint32, 'unknown4', {'flag': 11}),
+    (uint32, 'nose', {'flag': 11}),
+    (uint32, 'unknown5', {'flag': 11}),
+    (uint32, 'eyes', {'flag': 11}),
+    (uint32, 'mouth', {'flag': 11}),
+    # Flag 24 (gender)
+    (uint8, 'gender', {'flag': 24})
 ]
+
+fallout4playerlayout = [
+    # Flag 1
+    (bytes_, 'flag1data', {'length': 20, 'flag': 1}),
+    # Flag 6 (factions)
+    (uint8, 'factionsize', {'flag': 6}),
+    (bytes_, 'factions', {'length': 'factionsize', 'flag': 6}),
+    # Flag 5 (name)
+    (wstring, 'name', {'flag': 5}),
+    # Flag 24 (gender)
+    (uint8, 'gender', {'flag': 24}),
+    # Flag 11 (headparts)
+    (bytes_, 'flag11unknown1', {'length': 1, 'flag': 11}),
+    (refids, 'headpart1', {'num': 1, 'flag': 11}),
+    (bytes_, 'unknowncolor', {'length': 4, 'flag': 11}),
+    (refids, 'headpart2', {'num': 1, 'flag': 11}),
+    (vsval, 'headpartcount', {'flag': 11}),
+    (refids, 'headparts', {'num': 'headpartcount', 'flag': 11}),
+    (bytes_, 'flag11unknown2', {'length': 1, 'flag': 11}),
+    (uint32, 'tetitendsize', {'flag': 11}),
+    (bytes_, 'tetitend', {'length': 'tetitendsize', 'chunksize': 8, 'flag': 11}),
+    (uint32, 'facesliderssize', {'flag': 11}),
+    (bytes_, 'facesliders', {'length': 'facesliderssize', 'chunksize': 40, 'flag': 11}),
+    (uint32, 'faceextrassize', {'flag': 11}),
+    (bytes_, 'faceextras', {'length': 'faceextrassize', 'chunksize': 10, 'flag': 11}),
+    # Flag 14 (body stuff)
+    (uint32, 'bodyunknowncount', {'flag': 14}),
+    (bytes_, 'bodyunknown', {'length': 'bodyunknowncount', 'chunksize': 4, 'flag': 14}),
+    (float32, 'bodysliderthin', {'flag': 14}),
+    (float32, 'bodyslidermuscular', {'flag': 14}),
+    (float32, 'bodysliderlarge', {'flag': 14})
+]
+
+def parse_player(rawdata: bytes, flags: List[int], game: str):
+    """
+    I'm tired af and this is the same shit as the other parse_x functions.
+    In goes some bytes and out comes a nice dict you can do shit with.
+    The flags should be in the format you get from parse_changeforms.
+    """
+    if game == 'skyrim':
+        layout = skyrimplayerlayout
+    elif game == 'fallout4':
+        layout = fallout4playerlayout
+    data = OrderedDict() # type: Dict[str, Any]
+    i = 0
+    for typefunc, key, rawargs in layout:
+        # Skip flag-specific lines if the flag isn't active
+        if 'flag' in rawargs and rawargs['flag'] not in flags:
+            continue
+        args = {k: data[v] if isinstance(v, str) else v
+                for k,v in rawargs.items() if k != 'flag'}
+        offset, data[key] = typefunc(i, rawdata, **args)
+        i += offset
+    # Make sure nothing is dropped
+    assert i == len(rawdata)
+    return data
+
+
+def encode_player(data: Dict[str, Any], game: str):
+    """
+    In goes a nice player dict and out goes a nice array of bytes ready to be
+    dumped in an unsuspecting changeform dict. Woo.
+    """
+    if game == 'skyrim':
+        layout = skyrimplayerlayout
+    elif game == 'fallout4':
+        layout = fallout4playerlayout
+    rawdata = bytes()
+    def encodefunc(f):
+        return globals()['encode_' + f.__name__.rstrip('_')]
+    funcs = {name:encodefunc(func) for func, name, args in layout}
+    for key, value in data.items():
+        rawvalue = funcs[key](value)
+        rawdata += rawvalue
+    return rawdata
+
 
 
 def parse_changeforms(rawdata: bytes):
@@ -150,7 +292,7 @@ def parse_changeforms(rawdata: bytes):
         return struct.unpack(['B', 'H', 'I'][sizeflag], b)[0]
     i = 0
     cfstart = 0
-    data = OrderedDict()
+    data = OrderedDict() # type: Dict[str, Any]
     # Go through the changeforms until the player is found
     while True:
         cfstart = i
@@ -248,6 +390,7 @@ def parse_savedata(rawdata: bytes) -> Tuple[str, Dict[str, Any]]:
                 for k,v in rawargs.items() if k != 'game'}
         offset, data[key] = typefunc(i, rawdata, **args)
         i += offset
+    assert i == len(rawdata)
     return game, data
 
 def encode_savedata(data: Dict[str, Any]) -> bytes:
