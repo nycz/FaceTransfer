@@ -393,6 +393,26 @@ def parse_savedata(rawdata: bytes) -> Tuple[str, Dict[str, Any]]:
     assert i == len(rawdata)
     return game, data
 
+def update_savedata_offsets(data: Dict[str, Any]) -> None:
+    """
+    Make sure that the offsets to the various data tables are correct in
+    relation to the (possibly) new/changed tables. Plugin Info, changeForms
+    and formIDArray may all have changed size and the preceding offsets
+    should be change accordingly.
+
+    NOTE that this changes the data dict in place and doesn't return anything.
+    """
+    # changeForms
+    oldcflength = data['globaldatatable3offset'] - data['changeformsoffset']
+    if len(data['changeforms']) != oldcflength:
+        cflengthdiff = len(data['changeforms']) - oldcflength
+        data['globaldatatable3offset'] += cflengthdiff
+        data['formidarraycountoffset'] += cflengthdiff
+        data['unknowntable3offset'] += cflengthdiff
+    # formIDArray
+    # TODO: this and Plugin Info
+
+
 def encode_savedata(data: Dict[str, Any]) -> bytes:
     """
     Take a dictionary with the valid structure of a save file (aka the right
@@ -405,6 +425,7 @@ def encode_savedata(data: Dict[str, Any]) -> bytes:
         game = 'fallout4'
     else:
         raise Exception('Game not recognized! Magic is "{}"'.format(data['magic'].decode()))
+    update_savedata_offsets(data)
     rawdata = bytes()
     def encodefunc(f):
         return globals()['encode_' + f.__name__.rstrip('_')]
