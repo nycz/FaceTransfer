@@ -72,3 +72,28 @@ Get face info for the GUI
 2. Extract Screenshot
 3. Find and parse the Player
     - Return gender
+
+
+
+
+Changed sizes affect what
+=========================
+
+Plugin Info
+-----------
+globalDataTable1Offset
+globalDataTable2Offset
+changeFormsOffset
+globalDataTable3Offset
+formIDArrayCountOffset
+unknownTable3Offset
+
+changeForms
+-----------
+globalDataTable3Offset
+formIDArrayCountOffset
+unknownTable3Offset
+
+formIDArray
+-----------
+unknownTable3Offset
