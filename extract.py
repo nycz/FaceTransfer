@@ -235,6 +235,34 @@ fallout4playerlayout = [
     (float32, 'bodysliderlarge', {'flag': 14})
 ]
 
+def merge_player(sourcedata, sourceflags, targetdata, targetflags, game):
+    """
+    Take the facial data from the sourcedata and apply it onto the targetdata.
+    Return a valid player data dict like the one from parse_player coupled
+    with the updated flags.
+    """
+    if game == 'skyrim':
+        pass
+    elif game == 'fallout4':
+        # Flag 11 and 14 are the ones related to facial/body appearance
+        copyflags = [11,14]
+        flagdata = {}
+        for flag in copyflags:
+            flagdata[flag] = [name for func, name, args in fallout4playerlayout
+                              if args.get('flag', -1) == flag]
+        # Generate a new dict to hopefully not fuck everything up due to mutability
+        newflags = targetflags - set(copyflags)
+        newdata = OrderedDict([(k,v) for k,v in targetdata.items()
+                               if k not in flagdata[11] and k not in flagdata[14]])
+        # Copy the data from the old
+        for flag in copyflags:
+            if flag in sourceflags:
+                for k in flagdata[flag]:
+                    newdata[k] = sourcedata[k]
+                newflags.add(flag)
+        return newdata, newflags
+
+
 def parse_player(rawdata: bytes, flags: List[int], game: str):
     """
     I'm tired af and this is the same shit as the other parse_x functions.
@@ -277,7 +305,6 @@ def encode_player(data: Dict[str, Any], game: str):
         rawvalue = funcs[key](value)
         rawdata += rawvalue
     return rawdata
-
 
 
 def parse_changeforms(rawdata: bytes):

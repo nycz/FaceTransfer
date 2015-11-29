@@ -142,6 +142,96 @@ class ExtractionTest(unittest.TestCase):
     def test_decode_and_encode_player_fallout4(self):
         self.decode_and_encode_player('fallout4saves')
 
+    def merge_player_no_change(self, root):
+        for path, _, fnames in os.walk(root):
+            for fname in fnames:
+                with open(os.path.join(path, fname), 'rb') as f:
+                    rawdata = f.read()
+                game, data = extract.parse_savedata(rawdata)
+                cf = extract.parse_changeforms(data['changeforms'])
+                rawplayer1 = cf['playerdata']
+                playera = extract.parse_player(rawplayer1, cf['playerchangeflags'], game)
+                playerb = extract.parse_player(rawplayer1, cf['playerchangeflags'], game)
+                mergedplayer, newflags = extract.merge_player(
+                    playera, cf['playerchangeflags'],
+                    playerb, cf['playerchangeflags'],
+                    game
+                )
+                rawplayer2 = extract.encode_player(mergedplayer, game)
+                self.assertEqual(rawplayer1, rawplayer2)
+
+    def test_merge_player_no_change_fallout4(self):
+        self.merge_player_no_change('fallout4saves')
+
+    def merge_player_and_revert(self, fnames):
+        """
+        Apply the source's face onto the target file and then revert.
+        The target should be identical before and after.
+        """
+        for fname1, fname2 in fnames:
+            with open(fname1, 'rb') as f:
+                rawsourcedata = f.read()
+            with open(fname2, 'rb') as f:
+                rawtargetdata = f.read()
+            # First get the source for the face
+            sourcegame, sourcedata = extract.parse_savedata(rawsourcedata)
+            sourcecf = extract.parse_changeforms(sourcedata['changeforms'])
+            rawsourceplayer = sourcecf['playerdata']
+            sourceplayer = extract.parse_player(rawsourceplayer,
+                                                sourcecf['playerchangeflags'],
+                                                sourcegame)
+            # Then get the target data
+            targetgame, targetdata = extract.parse_savedata(rawtargetdata)
+            targetcf = extract.parse_changeforms(targetdata['changeforms'])
+            rawtargetplayer = targetcf['playerdata']
+            targetplayer = extract.parse_player(rawtargetplayer,
+                                                targetcf['playerchangeflags'],
+                                                targetgame)
+            # Merge the source and target
+            mergedplayer, mergedflags = extract.merge_player(
+                sourceplayer, sourcecf['playerchangeflags'],
+                targetplayer, targetcf['playerchangeflags'],
+                targetgame
+            )
+            # Then get a new copy of the target, just to be sure
+            target2game, target2data = extract.parse_savedata(rawtargetdata)
+            rawtarget2cf = target2data['changeforms']
+            target2cf = extract.parse_changeforms(rawtarget2cf)
+            rawtarget2player = target2cf['playerdata']
+            target2player = extract.parse_player(rawtarget2player,
+                                                target2cf['playerchangeflags'],
+                                                target2game)
+            # Revert the face, aka put the newly read target face
+            # onto the old target's data (which atm has source's face)
+            revertedplayer, revertedflags = extract.merge_player(
+                target2player, target2cf['playerchangeflags'],
+                targetplayer, targetcf['playerchangeflags'],
+                targetgame
+            )
+            # Encode the target again and compare
+            rawrevertedplayer = extract.encode_player(revertedplayer, targetgame)
+            self.assertEqual(rawtargetplayer, rawrevertedplayer)
+            # Encode the changeforms and compare
+            targetcf['playerdata'] = rawrevertedplayer
+            targetcf['playerchangeflags'] = revertedflags
+            rawrevertedcf = extract.encode_changeforms(targetcf)
+            self.assertEqual(rawtarget2cf, rawrevertedcf)
+            # Encode the whole file and compare
+            targetdata['changeforms'] = rawrevertedcf
+            rawreverteddata = extract.encode_savedata(targetdata)
+            self.assertEqual(rawtargetdata, rawreverteddata)
+
+    def test_merge_player_and_revert_fallout4(self):
+        fnames = [
+            (os.path.join('fallout4saves', 'mergetests', 'pair1a.fos'),
+             os.path.join('fallout4saves', 'mergetests', 'pair1b.fos')),
+            (os.path.join('fallout4saves', 'mergetests', 'pair2a.fos'),
+             os.path.join('fallout4saves', 'mergetests', 'pair2b.fos')),
+        ]
+        self.merge_player_and_revert(fnames)
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
