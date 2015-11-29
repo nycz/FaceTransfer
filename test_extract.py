@@ -86,7 +86,7 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual(l2, len(encval2))
 
     def test_flags(self):
-        val = [1,2,6,23,25]
+        val = {1,2,6,23,25}
         encval = extract.encode_flags(val)
         decval = extract.flags(0, encval)
         self.assertEqual(val, decval)

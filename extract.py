@@ -8,7 +8,7 @@ import struct
 import traceback
 import zlib
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 # ========= Encode/decode functions ==========================================
 
@@ -105,10 +105,10 @@ def encode_screenshot(data: bytes) -> bytes:
 
 # ========= Misc functions ===================================================
 
-def flags(i: int, data: bytes) -> List[int]:
-    return [n for n, x in enumerate(bin(uint32(i, data)[1])[2:][::-1]) if x == '1']
+def flags(i: int, data: bytes) -> Set[int]:
+    return {n for n, x in enumerate(bin(uint32(i, data)[1])[2:][::-1]) if x == '1'}
 
-def encode_flags(flags: List[int]) -> bytes:
+def encode_flags(flags: Set[int]) -> bytes:
     return encode_uint32(sum(pow(2, x) for x in flags))
 
 # ========= Main functions ===================================================
