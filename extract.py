@@ -309,7 +309,7 @@ def encode_player(data: Dict[str, Any], game: str):
     return rawdata
 
 
-def parse_changeforms(rawdata: bytes):
+def parse_changeforms(rawdata: bytes, refidnr=7):
     """
     Convert the changeforms table to a useful dict with the different parts of
     the player's changeform and the preceding and succeeding bytes.
@@ -335,7 +335,7 @@ def parse_changeforms(rawdata: bytes):
         uncompressedlength = uint(rawdata[i+lnsize:i+lnsize*2], cftype >> 6)
         i += lnsize * 2 + reallength
         # This is the players refid
-        if refid == bytes([64,0,7]):
+        if refid == bytes([64,0,refidnr]):
             data['changeformshead'] = rawdata[:cfstart]
             data['playerrefid'] = refid
             data['playerchangeflags'] = changeflags
