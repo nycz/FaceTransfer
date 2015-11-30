@@ -10,6 +10,8 @@ import zlib
 
 from typing import Any, Dict, List, Set, Tuple
 
+from common import GameError
+
 # ========= Encode/decode functions ==========================================
 
 def uint8(i: int, data: bytes) -> Tuple[int, int]:
@@ -402,7 +404,7 @@ def parse_savedata(rawdata: bytes) -> Tuple[str, Dict[str, Any]]:
     elif rawdata[:12] == b'FO4_SAVEGAME':
         game = 'fallout4'
     else:
-        raise Exception('Game not recognized! Magic is "{}"'.format(rawdata[:12].decode()))
+        raise GameError('Game not recognized. Magic is "{}"'.format(rawdata[:12].decode()))
     data = OrderedDict() # type: Dict[str, Any]
     i = 0
     for typefunc, key, rawargs in mainlayout:
@@ -451,7 +453,7 @@ def encode_savedata(data: Dict[str, Any]) -> bytes:
     elif data['magic'] == b'FO4_SAVEGAME':
         game = 'fallout4'
     else:
-        raise Exception('Game not recognized! Magic is "{}"'.format(data['magic'].decode()))
+        raise GameError('Game not recognized. Magic is "{}"'.format(data['magic'].decode()))
     update_savedata_offsets(data)
     rawdata = bytes()
     def encodefunc(f):
