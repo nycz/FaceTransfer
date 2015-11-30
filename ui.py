@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
 
+from datetime import datetime
 import os.path
+import sys
 import tempfile
 from tkinter import *
 from tkinter.messagebox import *
 from tkinter import filedialog
 from tkinter.ttk import *
 
+from common import GameError
 import facetransfer
 
 version = '0.1'
 
 
-def formatPlayingTime(timestamp):
+def get_save_path():
+    """ Get the path to the Skyrim savegame folder, using some windoze magic """
+    try:
+        import ctypes.wintypes
+        buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+        ctypes.windll.shell32.SHGetFolderPathW(0, 5, 0, 0, buf)
+        return os.path.join(buf.value, 'My Games', 'Fallout4', 'Saves')
+    except:
+        return ''
+
+def format_playing_time(timestamp):
     out = []
     # Fallout 4 timestamp (does not include seconds)
     if 'days' in timestamp:
@@ -34,17 +47,17 @@ def formatPlayingTime(timestamp):
 class MainWindow(Frame):
     def __init__(self, root):
         super().__init__(root)
-        root.title('Face Transfer')
+        root.title('Fallout 4 Face Transfer')
         # Global~ish variables
-        #self.savedir = getSavePath()
+        self.savedir = get_save_path()
         self.wildcard = [('Fallout 4 save files', '*.fos'),
-                         ('Skyrim save files', '*.ess'),
+                         #('Skyrim save files', '*.ess'),
                          ('All files', '*')]
         # Menu
         menubar = Menu(self)
         menu = Menu(menubar, tearoff=0)
         menu.add_command(label='About', command=self.show_about_dialog)
-        menu.add_command(label='Visit Nexus page')
+        #menu.add_command(label='Visit Nexus page')
         menu.add_command(label='Quit', command=lambda:root.destroy())
         menubar.add_cascade(label='Menu', menu=menu)
         root.config(menu=menubar)
@@ -62,7 +75,8 @@ class MainWindow(Frame):
             Frame(self, height=10).pack(side=TOP)
 
         # Bottom part
-        self.btntransfer = Button(self, text='Transfer', state=DISABLED)
+        self.btntransfer = Button(self, text='Transfer',
+                                  command=self.execute_transfer)
         self.btntransfer.pack(side=RIGHT)
         # Warning labels
         self.warninglabelvar = StringVar()
@@ -93,7 +107,6 @@ class MainWindow(Frame):
             labeldict[j] = StringVar()
             Label(frame, textvariable=labeldict[j]).grid(column=1, row=n+1,
                                                      padx=4, pady=3, sticky=W)
-
         self.screenshot[name] = Label(frame)
         self.screenshot[name].grid(column=2, row=1, rowspan=len(l),
                                    padx=4, pady=4)
@@ -107,19 +120,26 @@ class MainWindow(Frame):
                  ''.format(version, platform.python_version()))
 
     def source_browse(self):
-        fname = filedialog.askopenfilename(filetypes=self.wildcard)
-        self.browse(fname, 'source')
+        self.browse('source')
 
     def target_browse(self):
-        fname = filedialog.askopenfilename(filetypes=self.wildcard)
-        self.browse(fname, 'target')
+        self.browse('target')
 
-    def browse(self, fname, t):
+    def browse(self, t):
+        fname = filedialog.askopenfilename(initialdir=self.savedir,
+                                           filetypes=self.wildcard)
         if not fname:
             return
         fname = os.path.normpath(fname)
+        try:
+            info, game = facetransfer.get_ui_data(fname)
+        except GameError as e:
+            showerror('Error: format not recognized', str(e))
+            return
+        if game != 'fallout4':
+            showerror('Error: wrong game', 'The file doesn\'t seem to be a Fallout 4 save file.')
+            return
         self.field[t].set(fname)
-        info = facetransfer.get_ui_data(fname)
         for k,v in info.items():
             if k == 'screenshot':
                 w, h, shotdata = v
@@ -145,13 +165,53 @@ class MainWindow(Frame):
                 self.screenshot[t].config(image=img, relief=SUNKEN)
                 self.screenshot[t].image = img
             elif k == 'playing time':
-                self.widgets[t][k].set(formatPlayingTime(v))
+                self.widgets[t][k].set(format_playing_time(v))
+            elif k == 'gender':
+                self.widgets[t][k].set(['Male', 'Female'][v])
             else:
                 self.widgets[t][k].set(v)
+
+    def execute_transfer(self):
+        if not self.field['target'].get() or not self.field['source'].get():
+            showerror('Error: files missing', 'You have to pick a source and a target file.')
+            return
+        if self.widgets['target']['gender'].get() != self.widgets['source']['gender'].get():
+            showerror('Error: different gender', 'Both saves must have the same player gender.')
+            return
+        if self.widgets['target']['race'].get() != self.widgets['source']['race'].get():
+            showerror('Error: different race', 'Both saves must have the same player race.')
+            return
+        success = facetransfer.transfer_face(self.field['source'].get(),
+                                             self.field['target'].get())
+        if success:
+            showinfo('Done', 'The face has been copied to the target file!')
+        else:
+            showerror('Oops', 'Something went wrong! Look at the error log.')
+
+
+class ErrWrapper(object):
+    """
+    Good stuff! Generate a file with all errors not printed in the non-existing
+    console window.
+    """
+    def __init__(self, realoutput, logfilename):
+        if getattr(sys, 'frozen', False):
+            application_path = os.path.dirname(sys.executable)
+        elif __file__:
+            application_path = os.path.dirname(__file__)
+        self.realoutput = realoutput
+        self.logfilename = os.path.join(application_path, logfilename)
+
+    def write(self, text):
+        with open(self.logfilename, 'a') as f:
+            f.write(text)
+        self.realoutput.write(text)
 
 
 
 if __name__=='__main__':
+    errorlog = datetime.now().strftime('facetransfer_error_%Y-%m-%d_%H-%M-%S.txt')
+    sys.stderr = ErrWrapper(sys.stderr, errorlog)
     root = Tk()
     MainWindow(root)
     root.mainloop()
