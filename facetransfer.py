@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+from os.path import isfile
+from os import rename
 import extract
 
 def get_ui_data(fname):
@@ -17,7 +18,7 @@ def get_ui_data(fname):
     out['gender'] = data['playersex']
     out['playing time'] = data['gamedate']
     out['screenshot'] = (data['shotwidth'], data['shotheight'], data['screenshotdata'])
-    return out
+    return out, game
 
 
 def transfer_face(sourcefname: str, targetfname: str):
@@ -60,8 +61,11 @@ def transfer_face(sourcefname: str, targetfname: str):
     targetdata['changeforms'] = extract.encode_changeforms(targetcfdata)
     # Then encode the whole file
     newrawdata = extract.encode_savedata(targetdata)
-    # Write do disk
-    # TODO: temporary
-    with open('out.fos', 'wb') as f:
+    # Write to disk
+    i = 0
+    while isfile(targetfname+'.facebak'+str(i)):
+        i += 1
+    rename(targetfname, targetfname+'.facebak'+str(i))
+    with open(targetfname, 'wb') as f:
         f.write(newrawdata)
-
+    return True
