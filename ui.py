@@ -3,11 +3,12 @@
 from datetime import datetime
 import os.path
 import sys
-import tempfile
-from tkinter import *
-from tkinter.messagebox import *
-from tkinter import filedialog
-from tkinter.ttk import *
+from tempfile import NamedTemporaryFile
+from tkinter import Menu, PhotoImage, StringVar, Tk
+from tkinter import TOP, RIGHT, BOTH, DISABLED, W, E, N, X, SUNKEN
+from tkinter.ttk import Button, Entry, Frame, Label, LabelFrame
+from tkinter.messagebox import showerror, showinfo
+from tkinter.filedialog import askopenfilename
 
 from common import GameError
 import facetransfer
@@ -112,12 +113,12 @@ class MainWindow(Frame):
                                    padx=4, pady=4)
 
     def show_about_dialog(self):
-        import platform
+        from platform import python_version
         showinfo('About Face Transfer', 'Face Transfer {0} \n\n'
                  'Programmed in 2015 by nycz.\n\nLicensed under GPL. See the '
                  'sourcecode for more info.\n\nMade to run on Python 3.4 or '
                  'above.\n\nRunning on python version: {1}'
-                 ''.format(version, platform.python_version()))
+                 ''.format(version, python_version()))
 
     def source_browse(self):
         self.browse('source')
@@ -126,8 +127,8 @@ class MainWindow(Frame):
         self.browse('target')
 
     def browse(self, t):
-        fname = filedialog.askopenfilename(initialdir=self.savedir,
-                                           filetypes=self.wildcard)
+        fname = askopenfilename(initialdir=self.savedir,
+                                filetypes=self.wildcard)
         if not fname:
             return
         fname = os.path.normpath(fname)
@@ -145,8 +146,7 @@ class MainWindow(Frame):
                 w, h, shotdata = v
                 if len(shotdata)/w/h == 4:
                     shotdata = bytes([b for n,b in enumerate(shotdata) if (n+1)%4 != 0])
-                tfile = tempfile.NamedTemporaryFile('wb', suffix='.ppm',
-                                                    delete=False)
+                tfile = NamedTemporaryFile('wb', suffix='.ppm', delete=False)
                 if h == 384:
                     rows = list(zip(*[iter(shotdata)]*w*3))
                     tempshotdata = []
