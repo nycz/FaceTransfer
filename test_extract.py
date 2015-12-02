@@ -1,3 +1,4 @@
+import itertools
 import os
 import os.path
 import unittest
@@ -193,6 +194,9 @@ class ExtractionTest(unittest.TestCase):
                 targetplayer, targetcf['playerchangeflags'],
                 targetgame
             )
+            # Make sure the mergedplayer is valid
+            rawmergedplayer = extract.encode_player(mergedplayer, targetgame)
+            extract.parse_player(rawmergedplayer, mergedflags, targetgame)
             # Then get a new copy of the target, just to be sure
             target2game, target2data = extract.parse_savedata(rawtargetdata)
             rawtarget2cf = target2data['changeforms']
@@ -222,12 +226,14 @@ class ExtractionTest(unittest.TestCase):
             self.assertEqual(rawtargetdata, rawreverteddata)
 
     def test_merge_player_and_revert_fallout4(self):
-        fnames = [
-            (os.path.join('fallout4saves', 'mergetests', 'pair1a.fos'),
-             os.path.join('fallout4saves', 'mergetests', 'pair1b.fos')),
-            (os.path.join('fallout4saves', 'mergetests', 'pair2a.fos'),
-             os.path.join('fallout4saves', 'mergetests', 'pair2b.fos')),
-        ]
+        root = os.path.join('fallout4saves', 'mergetests')
+        fnames = []
+        for i in itertools.count(1):
+            f1 = os.path.join(root, 'pair{}a.fos'.format(i))
+            f2 = os.path.join(root, 'pair{}b.fos'.format(i))
+            if not os.path.isfile(f1) or not os.path.isfile(f2):
+                break
+            fnames.append((f1,f2))
         self.merge_player_and_revert(fnames)
 
 
