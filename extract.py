@@ -222,9 +222,10 @@ fallout4playerlayout = [
     (refids, 'headpart2', {'num': 1, 'flag': 11}),
     (vsval, 'headpartcount', {'flag': 11}),
     (refids, 'headparts', {'num': 'headpartcount', 'flag': 11}),
-    (bytes_, 'flag11unknown2', {'length': 1, 'flag': 11}),
-    (uint32, 'tetitendsize', {'flag': 11}),
-    (bytes_, 'tetitend', {'length': 'tetitendsize', 'chunksize': 8, 'flag': 11}),
+    # This int is really a bool and decides if the tetitend stuff is in or not
+    (uint8, 'tetitendpresent', {'flag': 11}),
+    (uint32, 'tetitendsize', {'ispresent': 'tetitendpresent', 'flag': 11}),
+    (bytes_, 'tetitend', {'length': 'tetitendsize', 'chunksize': 8, 'ispresent': 'tetitendpresent', 'flag': 11}),
     (uint32, 'facesliderssize', {'flag': 11}),
     (bytes_, 'facesliders', {'length': 'facesliderssize', 'chunksize': 40, 'flag': 11}),
     (uint32, 'faceextrassize', {'flag': 11}),
@@ -246,23 +247,29 @@ def merge_player(sourcedata, sourceflags, targetdata, targetflags, game):
     if game == 'skyrim':
         pass
     elif game == 'fallout4':
-        # Flag 11 and 14 are the ones related to facial/body appearance
         copyflags = [11,14]
         flagdata = {}
+        # Get the names of all parts related to face/body (flag 11 and 14)
         for flag in copyflags:
-            flagdata[flag] = [name for func, name, args in fallout4playerlayout
-                              if args.get('flag', -1) == flag]
+            flagdata[flag] = OrderedDict(
+                    [(name,args) for func, name, args in fallout4playerlayout
+                     if args.get('flag', -1) == flag]
+            )
         # Generate a new dict to hopefully not fuck everything up due to mutability
         newflags = targetflags - set(copyflags)
+        # This is a dict of all stuff from targetdata but the face/body stuff
         newdata = OrderedDict([(k,v) for k,v in targetdata.items()
                                if k not in flagdata[11] and k not in flagdata[14]])
         # Copy the data from the old
         for flag in copyflags:
             if flag in sourceflags:
-                for k in flagdata[flag]:
+                for k, args in flagdata[flag].items():
+                    if 'ispresent' in args and sourcedata[args['ispresent']] == False:
+                        continue
                     newdata[k] = sourcedata[k]
                 newflags.add(flag)
         return newdata, newflags
+
 
 
 def parse_player(rawdata: bytes, flags: List[int], game: str):
@@ -281,9 +288,15 @@ def parse_player(rawdata: bytes, flags: List[int], game: str):
         # Skip flag-specific lines if the flag isn't active
         if 'flag' in rawargs and rawargs['flag'] not in flags:
             continue
+        if 'ispresent' in rawargs and data[rawargs['ispresent']] == False:
+            continue
         args = {k: data[v] if isinstance(v, str) else v
-                for k,v in rawargs.items() if k != 'flag'}
-        offset, data[key] = typefunc(i, rawdata, **args)
+                for k,v in rawargs.items() if k not in ('flag', 'ispresent')}
+        try:
+            offset, data[key] = typefunc(i, rawdata, **args)
+        except Exception as e:
+            print('ERROR IN KEY:', key)
+            raise
         i += offset
     # Make sure nothing is dropped
     assert i == len(rawdata)
